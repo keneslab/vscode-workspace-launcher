@@ -10,6 +10,11 @@ A Windows 11 taskbar launcher for VS Code workspaces.
 
 No .NET SDK required — it builds with the .NET Framework compiler (`csc.exe`) that ships with Windows.
 
+<img src="docs/images/jumplist.png" alt="Jump list shown when right-clicking the taskbar icon" width="340">
+
+Right-clicking the taskbar icon. The top section lists the registered workspaces and project
+folders; the **작업** (Tasks) section below is always present.
+
 > **Note:** the application's user interface is in Korean. The code, build scripts and this
 > document are in English, but the window labels, dialogs and jump list entries are not
 > localized yet.
@@ -42,9 +47,9 @@ Then **pin it to the taskbar**:
 1. Start → All apps → `VS Code 워크스페이스`
 2. Right click → More → **Pin to taskbar**
 
-> Pin *that shortcut*, not the raw executable. The shortcut carries the AppUserModelID
-> (`DevWorkspace.VSCodeWorkspaceLauncher`) that the jump list is bound to. Dragging
-> `bin\WorkspaceLauncher.exe` onto the taskbar may leave the jump list empty.
+> Pinning `bin\WorkspaceLauncher.exe` directly works just as well. The jump list is bound to
+> the executable's path, so **if you move the executable**, pin it again and run
+> `WorkspaceLauncher.exe --refresh` once.
 
 If no workspace folder is found on first run the list starts empty. Open the jump list →
 `워크스페이스 관리 / 전체 목록…` → **설정** (Settings) tab and point it at a folder that
@@ -73,6 +78,8 @@ Open it from the jump list, or run `WorkspaceLauncher.exe --manage`.
 
 **Workspaces tab**
 
+![Manager window – workspaces tab](docs/images/manager-workspaces.png)
+
 - Checkbox = show this entry in the jump list
 - Reorder by **drag and drop** or the **▲ / ▼ / top / bottom** buttons (multi-select works)
 - Double click or `Enter` opens the selected workspace
@@ -84,15 +91,38 @@ Open it from the jump list, or run `WorkspaceLauncher.exe --manage`.
 
 **Settings tab**
 
+![Manager window – settings tab](docs/images/manager-settings.png)
+
 | Setting | Description |
 |---|---|
 | VS Code executable | Leave empty to auto-detect |
 | Scan folders | One per line |
-| Scan depth | How deep to look for `.code-workspace` files (default 3) |
+| Workspace file depth | How deep to look for `.code-workspace` files (default 3) |
 | Rescan on every launch | New workspaces get picked up on the next click |
+| Register project folders | Also register folders with no `.code-workspace` (on by default) |
+| Folder depth | `1` = only folders directly inside a scan folder (default 1) |
+| Only folders with a project marker | Require `.git`, `.vscode`, `package.json`, … |
 | Max jump list entries | `0` = as many as Windows allows |
 | Group into categories | Split the jump list by the `Group` value |
 | Left click action | Empty new window, or open a specific folder |
+
+### Scanning rules
+
+A scan folder is searched for two kinds of entry: **`.code-workspace` files** and
+**project folders**.
+
+- The scan folder itself is never registered — it is treated as a container for projects.
+  To register a single folder, use `폴더 추가…` (Add folder).
+- A folder that contains a `.code-workspace` file is represented by that file, so it is not
+  registered as a folder as well.
+- Dot-folders, hidden folders, symlinks and `node_modules`, `vendor`, `bin`, `obj`, `dist`,
+  `build` and friends are skipped (tune `ExcludeDirs` in `config.json`).
+- Paths that are already registered are never added twice, and **existing entries keep their
+  order** — new entries are appended at the end.
+
+If your projects live one level deeper, as `<root>/<category>/<project>`, use **folder depth 2
+with the project marker requirement on**: the category folders have no marker and get filtered
+out, leaving just the projects.
 
 ### Command line
 

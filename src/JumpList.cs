@@ -24,10 +24,12 @@ namespace WorkspaceLauncher
             JumpListResult res = new JumpListResult();
             ICustomDestinationList cdl = null;
 
+            DeleteLegacyList();
+
             try
             {
+                // SetAppID 를 부르지 않는다 = 이 프로세스의 기본 AppUserModelID(exe 경로 기반)를 쓴다.
                 cdl = (ICustomDestinationList)Shell.CreateInstance(Shell.CLSID_DestinationList);
-                cdl.SetAppID(ConfigStore.AppId);
 
                 uint maxSlots;
                 object removedObj;
@@ -151,10 +153,25 @@ namespace WorkspaceLauncher
             {
                 ICustomDestinationList cdl =
                     (ICustomDestinationList)Shell.CreateInstance(Shell.CLSID_DestinationList);
-                cdl.DeleteList(ConfigStore.AppId);
+                cdl.DeleteList(null);   // null = 이 프로세스의 AppUserModelID
                 Marshal.ReleaseComObject(cdl);
             }
             catch (Exception ex) { Log.Write("Clear failed: " + ex.Message); }
+
+            DeleteLegacyList();
+        }
+
+        /// <summary>1.0 에서 명시적 AppUserModelID 로 등록했던 점프 목록을 정리한다.</summary>
+        private static void DeleteLegacyList()
+        {
+            try
+            {
+                ICustomDestinationList cdl =
+                    (ICustomDestinationList)Shell.CreateInstance(Shell.CLSID_DestinationList);
+                cdl.DeleteList(ConfigStore.LegacyAppId);
+                Marshal.ReleaseComObject(cdl);
+            }
+            catch { }
         }
 
         public static string BuildOpenArgs(WsItem it)
@@ -229,8 +246,9 @@ namespace WorkspaceLauncher
     public static class ShortcutMaker
     {
         /// <summary>
-        /// 시작 메뉴에 AppUserModelID 가 찍힌 바로가기를 만든다.
-        /// (이 바로가기를 작업 표시줄에 고정해야 점프 목록이 붙는다)
+        /// 시작 메뉴에 바로가기를 만든다.
+        /// AppUserModelID 는 일부러 넣지 않는다 — 윈도우가 대상 exe 경로에서 만들어 주는 ID 를
+        /// 쓰게 해서, 이 바로가기로 고정하든 exe 를 직접 고정하든 점프 목록이 똑같이 붙게 한다.
         /// </summary>
         public static string CreateStartMenuShortcut(string linkName, string iconPath)
         {
@@ -247,10 +265,6 @@ namespace WorkspaceLauncher
             link.SetDescription("VS Code 워크스페이스 런처");
             if (!string.IsNullOrEmpty(iconPath) && File.Exists(iconPath))
                 link.SetIconLocation(iconPath, 0);
-
-            IPropertyStore store = (IPropertyStore)link;
-            Shell.SetStringProp(store, Shell.PKEY_AppUserModel_ID, ConfigStore.AppId);
-            store.Commit();
 
             IPersistFile pf = (IPersistFile)link;
             pf.Save(lnkPath, true);

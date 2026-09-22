@@ -1,4 +1,4 @@
-# WorkspaceLauncher 빌드 스크립트
+﻿# WorkspaceLauncher 빌드 스크립트
 # .NET SDK 없이 윈도우에 기본 포함된 .NET Framework 컴파일러(csc.exe)로 빌드한다.
 
 $ErrorActionPreference = 'Stop'

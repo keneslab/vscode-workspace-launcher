@@ -28,11 +28,30 @@ namespace WorkspaceLauncher
             {
                 if (!string.IsNullOrEmpty(Name)) return Name;
                 if (string.IsNullOrEmpty(Path)) return "(이름 없음)";
-                string f = System.IO.Path.GetFileName(Path);
+                string p = Path.TrimEnd('\\', '/');
+                string f = System.IO.Path.GetFileName(p);
+                if (string.IsNullOrEmpty(f)) f = p;          // "C:\" 같은 드라이브 루트
                 if (f.EndsWith(".code-workspace", StringComparison.OrdinalIgnoreCase))
                     f = f.Substring(0, f.Length - ".code-workspace".Length);
                 return f;
             }
+        }
+
+        /// <summary>.code-workspace 파일이면 true, 프로젝트 폴더면 false.</summary>
+        [ScriptIgnore]
+        public bool IsWorkspaceFile
+        {
+            get
+            {
+                return !string.IsNullOrEmpty(Path)
+                    && Path.EndsWith(".code-workspace", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        [ScriptIgnore]
+        public string KindLabel
+        {
+            get { return IsWorkspaceFile ? "워크스페이스" : "폴더"; }
         }
 
         [ScriptIgnore]
@@ -49,8 +68,13 @@ namespace WorkspaceLauncher
     public class AppConfig
     {
         public List<string> ScanRoots;      // 자동 스캔할 폴더들
-        public int ScanDepth;               // 하위 폴더 탐색 깊이
+        public int ScanDepth;               // .code-workspace 파일을 찾을 깊이
         public bool AutoScan;               // 실행할 때마다 자동 스캔
+        public bool ScanFolders;            // 프로젝트 폴더도 등록할지
+        public int FolderScanDepth;         // 폴더를 등록할 깊이 (1 = 스캔 루트 바로 아래)
+        public bool RequireProjectMarker;   // 프로젝트 표식이 있는 폴더만 등록
+        public List<string> ProjectMarkers; // 프로젝트 표식 (RequireProjectMarker 일 때만 사용)
+        public List<string> ExcludeDirs;    // 스캔에서 건너뛸 폴더 이름
         public string CodePath;             // Code.exe 경로 ("" 이면 자동 탐색)
         public int MaxJumpItems;            // 0 = 윈도우가 허용하는 최대치 자동 사용
         public bool GroupByCategory;        // Group 별로 카테고리 나눠 표시
@@ -59,11 +83,31 @@ namespace WorkspaceLauncher
         public string LeftClickPath;        // LeftClickMode == "folder" 일 때 열 경로
         public List<WsItem> Items;
 
+        public static readonly string[] DefaultProjectMarkers = new string[]
+        {
+            ".git", ".vscode", ".svn", ".idea",
+            "package.json", "composer.json", "pyproject.toml", "requirements.txt",
+            "Cargo.toml", "go.mod", "pom.xml", "build.gradle", "Gemfile",
+            "CMakeLists.txt", "Makefile", "Dockerfile", "docker-compose.yml",
+            "*.sln", "*.csproj", "pubspec.yaml"
+        };
+
+        public static readonly string[] DefaultExcludeDirs = new string[]
+        {
+            "node_modules", "vendor", "bin", "obj", "dist", "build", "out",
+            "target", "packages", "__pycache__", "venv", ".venv", "AppData"
+        };
+
         public AppConfig()
         {
             ScanRoots = new List<string>();
             ScanDepth = 3;
             AutoScan = true;
+            ScanFolders = true;
+            FolderScanDepth = 1;
+            RequireProjectMarker = false;
+            ProjectMarkers = new List<string>(DefaultProjectMarkers);
+            ExcludeDirs = new List<string>(DefaultExcludeDirs);
             CodePath = "";
             MaxJumpItems = 0;
             GroupByCategory = false;
@@ -76,7 +120,13 @@ namespace WorkspaceLauncher
 
     public static class ConfigStore
     {
-        public const string AppId = "DevWorkspace.VSCodeWorkspaceLauncher";
+        /// <summary>
+        /// 1.0 에서 쓰던 명시적 AppUserModelID.
+        /// 지금은 윈도우가 exe 경로에서 자동으로 만드는 ID 를 그대로 쓴다.
+        /// 이렇게 해야 exe 를 직접 작업 표시줄에 끌어다 고정해도 점프 목록이 붙는다.
+        /// (남아 있는 예전 목록을 지우는 데만 쓰인다)
+        /// </summary>
+        public const string LegacyAppId = "DevWorkspace.VSCodeWorkspaceLauncher";
 
         public static string ConfigDir
         {
@@ -129,6 +179,11 @@ namespace WorkspaceLauncher
             if (cfg.Items == null) cfg.Items = new List<WsItem>();
             if (cfg.ScanRoots == null) cfg.ScanRoots = new List<string>();
             if (cfg.ScanDepth <= 0) cfg.ScanDepth = 3;
+            if (cfg.FolderScanDepth <= 0) cfg.FolderScanDepth = 1;
+            if (cfg.ProjectMarkers == null || cfg.ProjectMarkers.Count == 0)
+                cfg.ProjectMarkers = new List<string>(AppConfig.DefaultProjectMarkers);
+            if (cfg.ExcludeDirs == null || cfg.ExcludeDirs.Count == 0)
+                cfg.ExcludeDirs = new List<string>(AppConfig.DefaultExcludeDirs);
             if (string.IsNullOrEmpty(cfg.CategoryTitle)) cfg.CategoryTitle = "워크스페이스";
             if (string.IsNullOrEmpty(cfg.LeftClickMode)) cfg.LeftClickMode = "new";
 
@@ -217,14 +272,17 @@ namespace WorkspaceLauncher
             return null;
         }
 
-        /// <summary>스캔 루트에서 .code-workspace 파일을 찾아 기존 목록과 병합(순서 보존).</summary>
+        /// <summary>
+        /// 스캔 루트에서 .code-workspace 파일과 프로젝트 폴더를 찾아 기존 목록과 병합한다.
+        /// 기존 항목의 순서는 그대로 두고 새 항목만 뒤에 붙인다.
+        /// </summary>
         public static int SyncFromDisk(AppConfig cfg)
         {
             List<string> found = new List<string>();
             foreach (string root in cfg.ScanRoots)
             {
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
-                ScanDir(root, cfg.ScanDepth, found);
+                ScanDir(NormalizePath(root), 0, cfg, found);
             }
 
             HashSet<string> known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -246,17 +304,33 @@ namespace WorkspaceLauncher
             return added;
         }
 
-        private static void ScanDir(string dir, int depthLeft, List<string> outList)
+        /// <param name="level">스캔 루트가 0, 그 바로 아래가 1.</param>
+        private static void ScanDir(string dir, int level, AppConfig cfg, List<string> outList)
         {
+            // 1) 이 폴더 안의 .code-workspace 파일
+            string[] files;
             try
             {
-                string[] files = Directory.GetFiles(dir, "*.code-workspace");
+                files = Directory.GetFiles(dir, "*.code-workspace");
                 Array.Sort(files, StringComparer.OrdinalIgnoreCase);
-                outList.AddRange(files);
             }
-            catch { }
+            catch { files = new string[0]; }
 
-            if (depthLeft <= 1) return;
+            // 2) 프로젝트 폴더로 등록
+            //    - 스캔 루트 자신은 등록하지 않는다 (프로젝트를 담는 그릇으로 본다)
+            //    - .code-workspace 가 들어 있는 폴더는 그 워크스페이스 파일이 대표하므로 제외
+            if (cfg.ScanFolders && level >= 1 && level <= cfg.FolderScanDepth && files.Length == 0)
+            {
+                if (!cfg.RequireProjectMarker || HasProjectMarker(dir, cfg))
+                    outList.Add(dir);
+            }
+
+            outList.AddRange(files);
+
+            // 3) 하위로. 워크스페이스 파일 탐색 깊이와 폴더 등록 깊이 중 더 깊은 쪽까지만.
+            int maxLevel = cfg.ScanDepth - 1;
+            if (cfg.ScanFolders && cfg.FolderScanDepth > maxLevel) maxLevel = cfg.FolderScanDepth;
+            if (level >= maxLevel) return;
 
             try
             {
@@ -264,13 +338,53 @@ namespace WorkspaceLauncher
                 Array.Sort(subs, StringComparer.OrdinalIgnoreCase);
                 foreach (string s in subs)
                 {
-                    string name = Path.GetFileName(s);
-                    if (name.StartsWith(".")) continue;
-                    if (string.Equals(name, "node_modules", StringComparison.OrdinalIgnoreCase)) continue;
-                    ScanDir(s, depthLeft - 1, outList);
+                    if (IsExcludedDir(s, cfg)) continue;
+                    ScanDir(s, level + 1, cfg, outList);
                 }
             }
             catch { }
+        }
+
+        private static bool IsExcludedDir(string dir, AppConfig cfg)
+        {
+            string name = Path.GetFileName(dir.TrimEnd('\\', '/'));
+            if (string.IsNullOrEmpty(name)) return true;
+            if (name.StartsWith(".")) return true;
+
+            try
+            {
+                FileAttributes a = File.GetAttributes(dir);
+                if ((a & FileAttributes.Hidden) != 0) return true;
+                if ((a & FileAttributes.ReparsePoint) != 0) return true;   // 심볼릭 링크 순환 방지
+            }
+            catch { return true; }
+
+            foreach (string ex in cfg.ExcludeDirs)
+                if (string.Equals(name, ex, StringComparison.OrdinalIgnoreCase)) return true;
+
+            return false;
+        }
+
+        private static bool HasProjectMarker(string dir, AppConfig cfg)
+        {
+            foreach (string marker in cfg.ProjectMarkers)
+            {
+                if (string.IsNullOrEmpty(marker)) continue;
+                try
+                {
+                    if (marker.IndexOf('*') >= 0)
+                    {
+                        if (Directory.GetFiles(dir, marker).Length > 0) return true;
+                    }
+                    else
+                    {
+                        string p = Path.Combine(dir, marker);
+                        if (File.Exists(p) || Directory.Exists(p)) return true;
+                    }
+                }
+                catch { }
+            }
+            return false;
         }
 
         public static string NormalizePath(string p)

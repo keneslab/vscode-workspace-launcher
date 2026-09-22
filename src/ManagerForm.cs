@@ -22,9 +22,16 @@ namespace WorkspaceLauncher
 
         // 설정 탭
         private TextBox _txtCode, _txtRoots, _txtCategory, _txtLeftPath;
-        private NumericUpDown _numDepth, _numMax;
-        private CheckBox _chkAutoScan, _chkGroup;
+        private NumericUpDown _numDepth, _numMax, _numFolderDepth;
+        private CheckBox _chkAutoScan, _chkGroup, _chkScanFolders, _chkRequireMarker;
         private RadioButton _rbNew, _rbFolder;
+
+        // 설정 탭에서 "입력칸 + 찾아보기 버튼" 한 줄을 창 너비에 맞춰 다시 배치하기 위한 목록.
+        // Anchor 만으로는 고DPI 에서 버튼이 창 밖으로 밀려나서 직접 계산한다.
+        private readonly List<KeyValuePair<TextBox, Button>> _settingsRows =
+            new List<KeyValuePair<TextBox, Button>>();
+        private Panel _settingsPanel;
+        private Label _noteLabel;
 
         public ManagerForm()
         {
@@ -79,9 +86,10 @@ namespace WorkspaceLauncher
             _list.HideSelection = false;
             _list.AllowDrop = true;
             _list.GridLines = false;
-            _list.Columns.Add("표시 이름", 230);
-            _list.Columns.Add("그룹", 110);
-            _list.Columns.Add("경로", 470);
+            _list.Columns.Add("표시 이름", 210);
+            _list.Columns.Add("종류", 115);
+            _list.Columns.Add("그룹", 100);
+            _list.Columns.Add("경로", 430);
             _list.ItemChecked += List_ItemChecked;
             _list.DoubleClick += delegate { OpenSelected(); };
             _list.ItemDrag += List_ItemDrag;
@@ -119,7 +127,7 @@ namespace WorkspaceLauncher
             // 3) 우측 버튼
             Panel right = new Panel();
             right.Dock = DockStyle.Right;
-            right.Width = 150;
+            right.Width = 190;
             int y = 4;
             _btnTop = AddBtn(right, "맨 위로", ref y, delegate { MoveToEdge(true); });
             _btnUp = AddBtn(right, "▲ 위로", ref y, delegate { MoveSelected(-1); });
@@ -175,7 +183,7 @@ namespace WorkspaceLauncher
         {
             Button b = new Button();
             b.Text = text;
-            b.Size = new Size(140, 28);
+            b.Size = new Size(178, 28);
             b.Location = new Point(6, y);
             b.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             b.Click += onClick;
@@ -194,15 +202,16 @@ namespace WorkspaceLauncher
             p.AutoScroll = true;
             tp.Controls.Add(p);
 
+            _settingsPanel = p;
+
             int y = 14;
-            const int labelW = 190;
-            const int fieldX = 200;
+            const int labelW = 240;
+            const int fieldX = 256;
 
             AddLabel(p, "VS Code 실행 파일", 12, y + 3, labelW);
             _txtCode = new TextBox();
             _txtCode.Location = new Point(fieldX, y);
             _txtCode.Width = 480;
-            _txtCode.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             string resolved = ConfigStore.ResolveCodeExe(_cfg);
             _txtCode.Text = !string.IsNullOrEmpty(_cfg.CodePath) ? _cfg.CodePath
                           : (resolved == null ? "" : resolved);
@@ -210,8 +219,7 @@ namespace WorkspaceLauncher
             Button bCode = new Button();
             bCode.Text = "찾아보기…";
             bCode.Location = new Point(fieldX + 490, y - 1);
-            bCode.Size = new Size(100, 25);
-            bCode.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            bCode.Size = new Size(110, 25);
             bCode.Click += delegate
             {
                 OpenFileDialog d = new OpenFileDialog();
@@ -219,6 +227,7 @@ namespace WorkspaceLauncher
                 if (d.ShowDialog(this) == DialogResult.OK) _txtCode.Text = d.FileName;
             };
             p.Controls.Add(bCode);
+            _settingsRows.Add(new KeyValuePair<TextBox, Button>(_txtCode, bCode));
             y += 38;
 
             AddLabel(p, "스캔 폴더 (한 줄에 하나)", 12, y + 3, labelW);
@@ -228,14 +237,12 @@ namespace WorkspaceLauncher
             _txtRoots.Height = 74;
             _txtRoots.Multiline = true;
             _txtRoots.ScrollBars = ScrollBars.Vertical;
-            _txtRoots.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             _txtRoots.Text = string.Join("\r\n", _cfg.ScanRoots.ToArray());
             p.Controls.Add(_txtRoots);
             Button bRoot = new Button();
             bRoot.Text = "폴더 추가…";
             bRoot.Location = new Point(fieldX + 490, y - 1);
-            bRoot.Size = new Size(100, 25);
-            bRoot.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            bRoot.Size = new Size(110, 25);
             bRoot.Click += delegate
             {
                 FolderBrowserDialog d = new FolderBrowserDialog();
@@ -248,9 +255,10 @@ namespace WorkspaceLauncher
                 }
             };
             p.Controls.Add(bRoot);
+            _settingsRows.Add(new KeyValuePair<TextBox, Button>(_txtRoots, bRoot));
             y += 86;
 
-            AddLabel(p, "하위 폴더 탐색 깊이", 12, y + 3, labelW);
+            AddLabel(p, "워크스페이스 파일 탐색 깊이", 12, y + 3, labelW);
             _numDepth = new NumericUpDown();
             _numDepth.Location = new Point(fieldX, y);
             _numDepth.Width = 70;
@@ -265,7 +273,42 @@ namespace WorkspaceLauncher
             _chkAutoScan.AutoSize = true;
             _chkAutoScan.Checked = _cfg.AutoScan;
             p.Controls.Add(_chkAutoScan);
-            y += 36;
+            y += 34;
+
+            _chkScanFolders = new CheckBox();
+            _chkScanFolders.Text = "프로젝트 폴더도 등록 (.code-workspace 가 없는 폴더)";
+            _chkScanFolders.Location = new Point(fieldX, y);
+            _chkScanFolders.AutoSize = true;
+            _chkScanFolders.Checked = _cfg.ScanFolders;
+            p.Controls.Add(_chkScanFolders);
+            y += 28;
+
+            AddLabel(p, "폴더 등록 깊이", 12, y + 3, labelW);
+            _numFolderDepth = new NumericUpDown();
+            _numFolderDepth.Location = new Point(fieldX, y);
+            _numFolderDepth.Width = 70;
+            _numFolderDepth.Minimum = 1;
+            _numFolderDepth.Maximum = 6;
+            _numFolderDepth.Value = Math.Min(6, Math.Max(1, _cfg.FolderScanDepth));
+            p.Controls.Add(_numFolderDepth);
+            AddLabel(p, "1 = 스캔 폴더 바로 아래 폴더만 등록", fieldX + 80, y + 3, 400, Color.DimGray);
+            y += 32;
+
+            _chkRequireMarker = new CheckBox();
+            _chkRequireMarker.Text = ".git · .vscode · package.json 같은 프로젝트 표식이 있는 폴더만";
+            _chkRequireMarker.Location = new Point(fieldX, y);
+            _chkRequireMarker.AutoSize = true;
+            _chkRequireMarker.Checked = _cfg.RequireProjectMarker;
+            p.Controls.Add(_chkRequireMarker);
+            y += 38;
+
+            EventHandler syncFolderOpts = delegate
+            {
+                _numFolderDepth.Enabled = _chkScanFolders.Checked;
+                _chkRequireMarker.Enabled = _chkScanFolders.Checked;
+            };
+            _chkScanFolders.CheckedChanged += syncFolderOpts;
+            syncFolderOpts(null, EventArgs.Empty);
 
             AddLabel(p, "점프 목록 최대 표시 개수", 12, y + 3, labelW);
             _numMax = new NumericUpDown();
@@ -313,14 +356,12 @@ namespace WorkspaceLauncher
             _txtLeftPath = new TextBox();
             _txtLeftPath.Location = new Point(fieldX + 20, y);
             _txtLeftPath.Width = 460;
-            _txtLeftPath.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             _txtLeftPath.Text = _cfg.LeftClickPath == null ? "" : _cfg.LeftClickPath;
             p.Controls.Add(_txtLeftPath);
             Button bLeft = new Button();
             bLeft.Text = "찾아보기…";
             bLeft.Location = new Point(fieldX + 490, y - 1);
-            bLeft.Size = new Size(100, 25);
-            bLeft.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            bLeft.Size = new Size(110, 25);
             bLeft.Click += delegate
             {
                 FolderBrowserDialog d = new FolderBrowserDialog();
@@ -328,6 +369,7 @@ namespace WorkspaceLauncher
                 if (d.ShowDialog(this) == DialogResult.OK) _txtLeftPath.Text = d.SelectedPath;
             };
             p.Controls.Add(bLeft);
+            _settingsRows.Add(new KeyValuePair<TextBox, Button>(_txtLeftPath, bLeft));
             y += 48;
 
             AddLabel(p, "설치 / 윈도우 설정", 12, y + 3, labelW, Color.Black, true);
@@ -366,9 +408,9 @@ namespace WorkspaceLauncher
             y += 44;
 
             Label note = new Label();
+            _noteLabel = note;
             note.Location = new Point(12, y);
             note.Size = new Size(760, 120);
-            note.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
             note.ForeColor = Color.DimGray;
             note.Text =
                 "· 등록할 수 있는 워크스페이스 개수에는 제한이 없습니다. 다만 윈도우 점프 목록 자체가 한 번에 보여주는 줄 수는\r\n" +
@@ -376,6 +418,29 @@ namespace WorkspaceLauncher
                 "  검색과 함께 전부 볼 수 있고, 위의 '표시 개수 늘리기' 로 윈도우 한도 자체를 올릴 수도 있습니다.\r\n" +
                 "· 점프 목록에 넣을 항목과 순서는 [워크스페이스] 탭에서 체크와 드래그로 정합니다.";
             p.Controls.Add(note);
+
+            p.Resize += delegate { LayoutSettingsRows(); };
+            LayoutSettingsRows();
+        }
+
+        /// <summary>입력칸과 오른쪽 '찾아보기' 버튼을 현재 창 너비에 맞춰 배치한다.</summary>
+        private void LayoutSettingsRows()
+        {
+            if (_settingsPanel == null) return;
+            int right = _settingsPanel.ClientSize.Width - 18;
+            if (right < 420) return;
+
+            foreach (KeyValuePair<TextBox, Button> row in _settingsRows)
+            {
+                TextBox t = row.Key;
+                Button b = row.Value;
+                b.Left = right - b.Width;
+                int w = b.Left - 12 - t.Left;
+                if (w > 120) t.Width = w;
+            }
+
+            if (_noteLabel != null)
+                _noteLabel.Width = Math.Max(400, right - _noteLabel.Left);
         }
 
         private void AddLabel(Panel p, string text, int x, int y, int w)
@@ -437,6 +502,7 @@ namespace WorkspaceLauncher
                 }
 
                 ListViewItem lvi = new ListViewItem(it.DisplayName);
+                lvi.SubItems.Add(it.KindLabel);
                 lvi.SubItems.Add(it.Group);
                 lvi.SubItems.Add(it.Path);
                 lvi.Checked = it.Show;
@@ -668,11 +734,10 @@ namespace WorkspaceLauncher
 
         private void RescanNow(object sender, EventArgs e)
         {
-            _cfg.ScanRoots = ParseRoots();
-            _cfg.ScanDepth = (int)_numDepth.Value;
-            int added = ConfigStore.SyncFromDisk(_cfg);
+            AppConfig cfg = CollectConfig();
+            int added = ConfigStore.SyncFromDisk(cfg);
             RefreshList(null);
-            SetStatus("스캔 완료 — 새로 찾은 워크스페이스 " + added + "개");
+            SetStatus("스캔 완료 — 새로 찾은 항목 " + added + "개");
         }
 
         private void RenameSelected(object sender, EventArgs e)
@@ -754,6 +819,9 @@ namespace WorkspaceLauncher
             _cfg.ScanRoots = ParseRoots();
             _cfg.ScanDepth = (int)_numDepth.Value;
             _cfg.AutoScan = _chkAutoScan.Checked;
+            _cfg.ScanFolders = _chkScanFolders.Checked;
+            _cfg.FolderScanDepth = (int)_numFolderDepth.Value;
+            _cfg.RequireProjectMarker = _chkRequireMarker.Checked;
             _cfg.MaxJumpItems = (int)_numMax.Value;
             _cfg.GroupByCategory = _chkGroup.Checked;
             _cfg.CategoryTitle = _txtCategory.Text.Trim().Length == 0

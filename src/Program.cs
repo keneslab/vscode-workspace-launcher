@@ -16,8 +16,9 @@ namespace WorkspaceLauncher
         [STAThread]
         private static int Main(string[] argv)
         {
-            try { Shell.SetCurrentProcessExplicitAppUserModelID(ConfigStore.AppId); }
-            catch (Exception ex) { Log.Write("SetAppID: " + ex.Message); }
+            // 명시적 AppUserModelID 는 일부러 설정하지 않는다.
+            // 윈도우가 exe 경로에서 만들어 주는 ID 를 쓰면, 시작 메뉴 바로가기로 고정하든
+            // exe 를 직접 끌어다 고정하든 같은 ID 가 되어 점프 목록이 항상 붙는다.
 
             string mode = "new";
             string target = null;

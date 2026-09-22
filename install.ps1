@@ -1,4 +1,4 @@
-# 빌드 + 시작 메뉴 바로가기 생성 + 점프 목록 등록을 한 번에 수행한다.
+﻿# 빌드 + 시작 메뉴 바로가기 생성 + 점프 목록 등록을 한 번에 수행한다.
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Definition

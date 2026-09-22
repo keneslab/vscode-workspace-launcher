@@ -1,0 +1,15 @@
+# 빌드 산출물 / build output
+bin/
+obj/
+*.exe
+*.pdb
+
+# 에디터 / editor
+.vs/
+.vscode/
+*.user
+*.suo
+
+# 윈도우 / Windows
+Thumbs.db
+desktop.ini

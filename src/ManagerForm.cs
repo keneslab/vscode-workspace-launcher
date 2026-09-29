@@ -866,7 +866,7 @@ namespace WorkspaceLauncher
         private void ShowResult(JumpListResult r, string extra)
         {
             _status.Text = "적용됨 — 등록 " + r.TotalItems + "개 · 점프 목록에 " + r.ShownItems +
-                           "개 표시 · 윈도우 허용 슬롯 " + r.MaxSlots + "개" + extra;
+                           "개 표시 · 상한 " + r.Capacity + "개 (윈도우 보고 " + r.MaxSlots + "개)" + extra;
         }
 
         // ---- 설치/윈도우 설정 ----

@@ -135,7 +135,7 @@ namespace WorkspaceLauncher
                           "새로 찾은 워크스페이스: " + added + "개\r\n" +
                           "등록된 항목: " + r.TotalItems + "개\r\n" +
                           "점프 목록에 표시: " + r.ShownItems + "개\r\n" +
-                          "윈도우가 허용한 슬롯: " + r.MaxSlots + "개";
+                          "적용한 상한: " + r.Capacity + "개 (윈도우 보고 " + r.MaxSlots + "개)";
                 }
                 else
                 {

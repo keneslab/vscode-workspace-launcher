@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Microsoft.Win32;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -9,6 +10,7 @@ namespace WorkspaceLauncher
     public class JumpListResult
     {
         public uint MaxSlots;       // 윈도우가 알려준 표시 가능 슬롯 수
+        public int Capacity;        // 실제로 채운 상한 (MaxSlots 와 레지스트리 값 중 큰 쪽)
         public int TotalItems;      // 설정에 등록된 전체 항목 수
         public int ShownItems;      // 점프 목록에 실제로 넣은 항목 수
         public bool Ok;
@@ -69,8 +71,12 @@ namespace WorkspaceLauncher
                 }
                 res.TotalItems = visible.Count;
 
-                int capacity = (int)maxSlots;
+                // 윈도우 11 은 JumpListItems_Maximum 을 올려도 cMaxSlots 를 10 으로 돌려준다.
+                // 셸은 넘치는 항목을 알아서 잘라내므로 레지스트리 값이 더 크면 그 값을 믿는다.
+                // (고정된 항목은 이 카테고리에서 빠지면서 자리를 차지하므로 여유가 필요하다)
+                int capacity = Math.Max((int)maxSlots, ReadRegistryMaximum());
                 if (capacity <= 0) capacity = 10;
+                res.Capacity = capacity;
                 if (cfg.MaxJumpItems > 0 && cfg.MaxJumpItems < capacity) capacity = cfg.MaxJumpItems;
 
                 // 그룹 구성 (순서 유지)
@@ -172,6 +178,22 @@ namespace WorkspaceLauncher
                 Marshal.ReleaseComObject(cdl);
             }
             catch { }
+        }
+
+        /// <summary>HKCU\...\Explorer\Advanced\JumpListItems_Maximum (없으면 0).</summary>
+        private static int ReadRegistryMaximum()
+        {
+            try
+            {
+                using (RegistryKey k = Registry.CurrentUser.OpenSubKey(
+                           @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"))
+                {
+                    if (k == null) return 0;
+                    object v = k.GetValue("JumpListItems_Maximum");
+                    return v is int ? (int)v : 0;
+                }
+            }
+            catch { return 0; }
         }
 
         public static string BuildOpenArgs(WsItem it)
